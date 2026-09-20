@@ -2,7 +2,7 @@
 // @name         豆包dola国内国际视频去水印
 // @name:zh-CN   豆包dola国内国际视频去水印
 // @namespace    https://github.com/jeffak000/doubao-gailiuzi
-// @version      2.0.5
+// @version      2.0.6
 // @description  在 dola.com / doubao.com 抓取无水印原视频（logo_type=unwatermarked + main_url 解密）。面板带缩略图预览，页面视频上直接叠加下载按钮。仅视频。
 // @description:zh-CN  在豆包国际版(Dola)与豆包页面抓取无水印原视频（换 logo_type 参数 + 解密 main_url）。面板显示缩略图/生成时间，视频上叠加下载按钮。仅视频，不抓图片。
 // @author       gai溜子到处跑 (jeffak@126.com)
@@ -45,7 +45,7 @@
   const SUBTLE = (W.crypto && W.crypto.subtle) ? W.crypto.subtle : null;
 
   // ---------- 常量 / 配置 ----------
-  const CUR_VER  = "2.0.5";
+  const CUR_VER  = "2.0.6";
   const AUTHOR   = "gai溜子到处跑";
   const EMAIL    = "jeffak@126.com";
   const SITE_URL = "https://www.090803.xyz";
@@ -284,7 +284,7 @@
         if(!m){ alert("无法解析最新版本号"); return; }
         const latest=m[1];
         if(compareVer(latest,CUR_VER)>0){
-          if(confirm(`发现新版本 v${latest}（当前 v${CUR_VER}）。\n是否前往 GitHub 下载更新？`)) W.open(REPO_URL,"_blank");
+          if(confirm(`发现新版本 v${latest}（当前 v${CUR_VER}）。\n是否打开 GitHub 上的脚本文件更新？`)) W.open(RAW_URL,"_blank");
         } else { alert(`当前已是最新版本（v${CUR_VER}）`); }
       },
       onerror:()=>alert("检查更新失败（网络错误）") });
