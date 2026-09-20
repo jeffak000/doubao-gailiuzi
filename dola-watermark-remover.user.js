@@ -2,9 +2,9 @@
 // @name         Dola/豆包 无水印视频下载器（仅视频版）
 // @name:zh-CN   Dola/豆包 无水印视频下载器（仅视频版）
 // @namespace    https://github.com/jeffak000/doubao-gailiuzi
-// @version      2.0.2
-// @description  在 dola.com / doubao.com 抓取无水印原视频（logo_type=unwatermarked + main_url 解密），仅提取视频，不抓图片。支持 GitHub 更新与生成时间显示。
-// @description:zh-CN  在豆包国际版(Dola)与豆包页面抓取无水印原视频（换 logo_type 参数 + 解密 main_url），只下载视频，不抓图片。支持 GitHub 更新检查与显示视频生成时间。
+// @version      2.0.3
+// @description  在 dola.com / doubao.com 抓取无水印原视频（logo_type=unwatermarked + main_url 解密）。面板带缩略图预览，页面视频上直接叠加下载按钮。仅视频。
+// @description:zh-CN  在豆包国际版(Dola)与豆包页面抓取无水印原视频（换 logo_type 参数 + 解密 main_url）。面板显示缩略图/生成时间，视频上叠加下载按钮。仅视频，不抓图片。
 // @author       WorkBuddy (for jeffak000/doubao-gailiuzi)
 // @copyright    www.090803.xyz
 // @homepageURL  https://github.com/jeffak000/doubao-gailiuzi
@@ -44,7 +44,7 @@
   const SUBTLE = (W.crypto && W.crypto.subtle) ? W.crypto.subtle : null;
 
   // ---------- 常量 / 配置 ----------
-  const CUR_VER  = "2.0.2";
+  const CUR_VER  = "2.0.3";
   const REPO_URL = "https://github.com/jeffak000/doubao-gailiuzi";
   const RAW_URL  = "https://raw.githubusercontent.com/jeffak000/doubao-gailiuzi/main/dola-watermark-remover.user.js";
   const COPYRIGHT = "www.090803.xyz";
@@ -54,12 +54,14 @@
     "1cb2462b829ab58a196b39db57177524" +
     "f49baf7f08e8d68d26a72e37c1a95a2f" +
     "1f05a51892aef2949732b62a38aadd58");
-  // 视频对象里可能携带生成时间的字段名（秒或毫秒时间戳）
+  // 视频对象里可能携带的字段名
   const TIME_KEYS = ["create_time","gmt_create","ctime","createTime","video_create_time",
                      "publish_time","generation_time","produce_time","add_time","update_time"];
+  const COVER_KEYS = ["cover_url","cover","poster","origin_cover","dynamic_cover","video_cover",
+                      "poster_url","cover_uri","first_frame","animated_cover","origin_cover_url"];
 
   // ---------- 存储 ----------
-  const videos = new Map();      // url -> {url, status, clean, err, time}
+  const videos = new Map();      // url -> {url, status, clean, err, time, cover, playing}
 
   // ---------- 工具 ----------
   function hexToBytes(hex){ const a=[]; for(let i=0;i<hex.length;i+=2) a.push(parseInt(hex.substr(i,2),16)); return new Uint8Array(a); }
@@ -86,6 +88,16 @@
       if(!isNaN(d.getTime())) return d;
     }
     return null;
+  }
+  function firstUrl(x){
+    if(typeof x==="string") return isHttpUrl(x)?x:"";
+    if(Array.isArray(x)){ for(const y of x){ const u=firstUrl(y); if(u) return u; } return ""; }
+    if(x&&typeof x==="object"){ for(const k of ["url","uri","url_list","cover_url","main_url","src"]){ const u=firstUrl(x[k]); if(u) return u; } }
+    return "";
+  }
+  function pickCover(node){
+    for(const k of COVER_KEYS){ const u=firstUrl(node[k]); if(u) return u; }
+    return "";
   }
 
   // ---------- base64 / 解密（移植自 doubao-nomark video_crypto.py）----------
@@ -158,6 +170,7 @@
 
   // ---------- 抓取 fallback_api（视频源）----------
   function isFplayUrl(u){
+    if(!u||typeof u!=="string") return false;
     try{ const p=new URL(u); const h=p.hostname.toLowerCase();
       const ok=FPLAY_HOST_SUFFIXES.some(s=>h===s.slice(1)||h.endsWith(s));
       return ok && p.pathname.startsWith("/video/fplay/");
@@ -168,9 +181,9 @@
     if(!url||typeof url!=="string") return;
     if(!isFplayUrl(url)) return;
     if(videos.has(url)) return;
-    let time=null;
-    if(typeof node==="object"&&node) time=pickTime(node);
-    videos.set(url,{url,status:"ready",clean:null,err:"",time});
+    let time=null, cover="";
+    if(typeof node==="object"&&node){ time=pickTime(node); cover=pickCover(node); }
+    videos.set(url,{url,status:"ready",clean:null,err:"",time,cover,playing:false});
     schedulePanel();
   }
   function buildUnwatermarkedUrl(url){
@@ -275,10 +288,11 @@
 
   // ---------- 面板 ----------
   let panel,bodyBuilt=false,timer=null;
+  const COVER_PH='<div style="width:96px;height:54px;border-radius:4px;background:#111;border:1px solid #333;display:flex;align-items:center;justify-content:center;color:#555;font-size:18px;flex:0 0 auto;">🎬</div>';
   function buildPanel(){
     panel=document.createElement("div"); panel.id="dola-wm-panel";
     Object.assign(panel.style,{position:"fixed",right:"12px",bottom:"12px",zIndex:2147483647,
-      width:"330px",maxHeight:"72vh",overflow:"auto",background:"#1e1e1e",color:"#eee",
+      width:"360px",maxHeight:"72vh",overflow:"auto",background:"#1e1e1e",color:"#eee",
       border:"1px solid #444",borderRadius:"10px",font:"13px/1.4 system-ui,sans-serif",boxShadow:"0 8px 24px rgba(0,0,0,.4)"});
     panel.innerHTML=
       '<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 10px;background:#2a2a2a;border-radius:10px 10px 0 0;cursor:move;">'+
@@ -300,6 +314,7 @@
     bar.onmousedown=e=>{drag=true;sx=e.clientX;sy=e.clientY;const r=el.getBoundingClientRect();dx=r.left;dy=r.top;e.preventDefault();};
     document.onmousemove=e=>{if(!drag)return;el.style.left=dx+(e.clientX-sx)+"px";el.style.top=dy+(e.clientY-sy)+"px";el.style.right="auto";el.style.bottom="auto";};
     document.onmouseup=()=>drag=false; }
+  function esc(s){ return String(s).replace(/"/g,"&quot;"); }
   function renderPanel(){
     if(!bodyBuilt) return;
     const b=panel.querySelector("#dola-wm-body");
@@ -308,31 +323,91 @@
     let html=`<div style="color:#aaa;margin-bottom:4px;">视频源 ${vids.length}</div>`;
     for(const v of vids){
       const st=v.status==="loading"?"⏳ 解密处理中…":v.status==="done"?"✅ 已得无水印直链":v.status==="err"?("❌ "+v.err):"待下载";
+      const thumb=v.cover?`<img src="${esc(v.cover)}" loading="lazy" style="width:96px;height:54px;object-fit:cover;border-radius:4px;background:#000;border:1px solid #333;flex:0 0 auto;" onerror="this.replaceWith(document.createTextNode('🎬'))">`:COVER_PH;
+      const key=encodeURIComponent(v.url);
+      let player="";
+      if(v.playing&&v.clean){
+        player=`<video src="${esc(v.clean)}" controls autoplay playsinline style="width:100%;margin-top:6px;border-radius:6px;background:#000;"></video>`;
+      }
       html+=`<div style="margin:6px 0;padding:6px;border:1px solid #333;border-radius:6px;">`+
+        `<div style="display:flex;gap:8px;">`+thumb+
+        `<div style="flex:1;min-width:0;">`+
         `<div style="font-size:11px;color:#81c784;">🎬 Dola 视频（去水印）</div>`+
         `<div style="font-size:10px;color:#bbb;">🕒 生成时间：${fmtTime(v.time)}</div>`+
-        `<div style="font-size:10px;color:#888;">${st}</div>`+
-        `<div style="margin-top:4px;"><button data-vid="${encodeURIComponent(v.url)}" style="padding:3px 8px;background:#e53935;color:#fff;border:none;border-radius:5px;cursor:pointer;">下载无水印</button></div></div>`;
+        `<div style="font-size:10px;color:#888;">${st}</div></div></div>`+
+        `<div style="margin-top:6px;display:flex;gap:6px;">`+
+        `<button data-vid="${key}" style="padding:3px 8px;background:#e53935;color:#fff;border:none;border-radius:5px;cursor:pointer;">下载无水印</button>`+
+        `<button data-prev="${key}" style="padding:3px 8px;background:#455a64;color:#fff;border:none;border-radius:5px;cursor:pointer;">${v.playing?"收起预览":"预览"}</button></div>`+
+        player+`</div>`;
     }
     b.innerHTML=html;
     b.querySelectorAll("[data-vid]").forEach(btn=>btn.onclick=()=>downloadVideo(videos.get(decodeURIComponent(btn.dataset.vid))));
+    b.querySelectorAll("[data-prev]").forEach(btn=>btn.onclick=()=>previewVideo(videos.get(decodeURIComponent(btn.dataset.prev))));
+  }
+  async function ensureClean(v){
+    if(v.clean) return v.clean;
+    v.status="loading"; renderPanel();
+    try{ v.clean=await fetchCleanVideo(v.url); v.status="done"; return v.clean; }
+    catch(e){ v.status="err"; v.err=e.message; throw e; }
   }
   async function downloadVideo(v){
     if(!v||v.status==="loading") return;
-    v.status="loading"; renderPanel();
-    try{
-      const clean=await fetchCleanVideo(v.url);
-      v.clean=clean; v.status="done"; renderPanel();
-      download(clean);
-    }catch(e){ v.status="err"; v.err=e.message; renderPanel(); alert("去水印失败："+e.message+"\n\n可改用 doubao-nomark 扩展，或把报错发我。"); }
+    try{ const clean=await ensureClean(v); renderPanel(); download(clean); }
+    catch(e){ renderPanel(); alert("去水印失败："+e.message+"\n\n可改用 doubao-nomark 扩展，或把报错发我。"); }
+  }
+  async function previewVideo(v){
+    if(!v) return;
+    if(v.playing){ v.playing=false; renderPanel(); return; }
+    try{ await ensureClean(v); v.playing=true; renderPanel(); }
+    catch(e){ renderPanel(); alert("预览失败（解密）："+e.message); }
   }
   function schedulePanel(){ if(timer)return; timer=setTimeout(()=>{ timer=null; if(!bodyBuilt)buildPanel(); renderPanel(); },400); }
 
+  // ---------- 页面视频上的下载按钮 ----------
+  function sourceForVideo(el){
+    const cands=[el.currentSrc, el.src, el.getAttribute("src"), el.getAttribute("data-src")].filter(Boolean);
+    for(const c of cands){ if(isFplayUrl(c)) return c; }
+    const poster=el.poster||el.getAttribute("poster")||"";
+    if(poster){ for(const v of videos.values()){ if(v.cover&&v.cover===poster) return v.url; } }
+    if(videos.size>=1) return [...videos.keys()][0];
+    return "";
+  }
+  function onVideoClick(el){
+    let url=sourceForVideo(el);
+    if(!url){
+      const cands=[el.currentSrc, el.src, el.getAttribute("src")].filter(Boolean);
+      const f=cands.find(isFplayUrl);
+      if(f){ addVideoSource(f); url=f; }
+    }
+    if(!url){ alert("暂未捕获到该视频的源，请等页面加载完再试，或打开右下角面板下载。"); return; }
+    if(!videos.has(url)) addVideoSource(url);
+    downloadVideo(videos.get(url));
+  }
+  function injectVideoButtons(){
+    const vids=document.querySelectorAll("video");
+    for(const el of vids){
+      try{ const s=el.currentSrc||el.src||el.getAttribute("src")||""; if(isFplayUrl(s)) addVideoSource(s); }catch(e){}
+      const parent=el.parentElement; if(!parent) continue;
+      let id=el.getAttribute("data-dola-btnid");
+      if(!id){ id="dola-b-"+Math.random().toString(36).slice(2); el.setAttribute("data-dola-btnid",id); }
+      if(document.querySelector('[data-dola-btn="'+id+'"]')) continue;
+      try{ if(getComputedStyle(parent).position==="static") parent.style.position="relative"; }catch(e){}
+      const btn=document.createElement("button");
+      btn.setAttribute("data-dola-btn",id); btn.textContent="⬇ 无水印";
+      Object.assign(btn.style,{position:"absolute",top:"8px",right:"8px",zIndex:99999,
+        background:"rgba(229,57,53,.95)",color:"#fff",border:"none",borderRadius:"6px",
+        padding:"4px 8px",font:"12px system-ui,sans-serif",cursor:"pointer",pointerEvents:"auto",boxShadow:"0 2px 6px rgba(0,0,0,.4)"});
+      btn.onclick=e=>{ e.preventDefault(); e.stopPropagation(); onVideoClick(el); };
+      parent.appendChild(btn);
+    }
+  }
+
   // ---------- 启动 ----------
   function start(){
-    const init=()=>{ buildPanel(); scanScriptTags();
+    const init=()=>{ buildPanel(); scanScriptTags(); injectVideoButtons();
       new MutationObserver(()=>scanScriptTags()).observe(document.documentElement,{childList:true,subtree:true});
-      setInterval(scanScriptTags,2500); };
+      setInterval(scanScriptTags,2500);
+      setInterval(injectVideoButtons,1500); };
     if(document.body) init(); else document.addEventListener("DOMContentLoaded",init);
   }
   start();
