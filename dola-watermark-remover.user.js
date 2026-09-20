@@ -1,11 +1,12 @@
 // ==UserScript==
-// @name         Dola/豆包 无水印视频下载器（仅视频版）
-// @name:zh-CN   Dola/豆包 无水印视频下载器（仅视频版）
+// @name         gai溜子dola豆包国际 视频下载无水印
+// @name:zh-CN   gai溜子dola豆包国际 视频下载无水印
 // @namespace    https://github.com/jeffak000/doubao-gailiuzi
-// @version      2.0.3
+// @version      2.0.4
 // @description  在 dola.com / doubao.com 抓取无水印原视频（logo_type=unwatermarked + main_url 解密）。面板带缩略图预览，页面视频上直接叠加下载按钮。仅视频。
 // @description:zh-CN  在豆包国际版(Dola)与豆包页面抓取无水印原视频（换 logo_type 参数 + 解密 main_url）。面板显示缩略图/生成时间，视频上叠加下载按钮。仅视频，不抓图片。
-// @author       WorkBuddy (for jeffak000/doubao-gailiuzi)
+// @author       gai溜子到处跑
+// @authorURL    https://www.090803.xyz
 // @copyright    www.090803.xyz
 // @homepageURL  https://github.com/jeffak000/doubao-gailiuzi
 // @supportURL   https://github.com/jeffak000/doubao-gailiuzi/issues
@@ -44,7 +45,9 @@
   const SUBTLE = (W.crypto && W.crypto.subtle) ? W.crypto.subtle : null;
 
   // ---------- 常量 / 配置 ----------
-  const CUR_VER  = "2.0.3";
+  const CUR_VER  = "2.0.4";
+  const AUTHOR   = "gai溜子到处跑";
+  const SITE_URL = "https://www.090803.xyz";
   const REPO_URL = "https://github.com/jeffak000/doubao-gailiuzi";
   const RAW_URL  = "https://raw.githubusercontent.com/jeffak000/doubao-gailiuzi/main/dola-watermark-remover.user.js";
   const COPYRIGHT = "www.090803.xyz";
@@ -302,7 +305,7 @@
       '<button id="dola-wm-update" style="padding:5px 8px;background:#1565c0;color:#fff;border:none;border-radius:6px;cursor:pointer;">检查更新</button>'+
       '<button id="dola-wm-clear" style="padding:5px 8px;background:#555;color:#fff;border:none;border-radius:6px;cursor:pointer;">清空</button></div>'+
       '<div id="dola-wm-body" style="padding:6px 10px 10px;"></div>'+
-      `<div style="padding:6px 10px;border-top:1px solid #333;font-size:10px;color:#777;text-align:center;">© ${COPYRIGHT} · v${CUR_VER} · 更新见 <a href="${REPO_URL}" target="_blank" style="color:#64b5f6;">GitHub</a></div>`;
+      `<div style="padding:6px 10px;border-top:1px solid #333;font-size:10px;color:#777;text-align:center;line-height:1.7;">© <a href="${SITE_URL}" target="_blank" rel="noopener" style="color:#64b5f6;text-decoration:none;">${COPYRIGHT}</a> · 作者 ${AUTHOR} · v${CUR_VER} · 更新见 <a href="${REPO_URL}" target="_blank" rel="noopener" style="color:#64b5f6;">GitHub</a></div>`;
     document.body.appendChild(panel);
     panel.querySelector("#dola-wm-close").onclick=()=>panel.remove();
     panel.querySelector("#dola-wm-clear").onclick=()=>{ videos.clear(); renderPanel(); };
