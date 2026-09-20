@@ -1,10 +1,10 @@
-# gai溜子dola豆包国际 视频下载无水印
+# 豆包dola国内国际视频去水印
 
 在豆包国际版 **Dola (dola.com)** 与国内 **doubao.com** 页面，一键抓取并下载**无水印**原视频。
 
 > 本版本 **只提取视频，不抓图片**。需要图片版可回看历史 Release（v2.0.0 含图片功能）。
 
-作者 **gai溜子到处跑** · 主页 <https://www.090803.xyz>
+作者 **gai溜子到处跑** · 邮箱 jeffak@126.com · 主页 <https://www.090803.xyz>
 
 ## 功能
 - ✅ Dola (dola.com) / doubao.com 双平台
