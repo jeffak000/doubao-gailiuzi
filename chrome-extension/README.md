@@ -1,4 +1,4 @@
-# 豆包dola国内国际视频去水印（Edge / Chrome 扩展版）
+# 豆包dola国内国际视频去水印（插件版）
 
 油猴脚本 `dola-watermark-remover.user.js` 的**浏览器扩展**形态。功能完全一致：在 dola.com / doubao.com 抓取无水印原视频（`logo_type=unwatermarked` + `main_url` 解密），右下角面板带缩略图/生成时间，页面视频上直接叠加「⬇ 无水印」按钮。仅视频。
 
@@ -11,7 +11,7 @@
 1. 打开 `edge://extensions`
 2. 左侧/右上角打开「开发人员模式」(Developer mode) 开关
 3. 点击「加载解压缩的扩展」(Load unpacked)
-4. 选择本文件夹 `dola-watermark-edge-extension`
+4. 选择本文件夹 `dola-watermark-chrome-extension`
 5. 固定到工具栏（扩展图标 → 固定）
 
 ## 安装（Chrome）
