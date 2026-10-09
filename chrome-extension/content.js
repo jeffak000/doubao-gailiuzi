@@ -1,0 +1,399 @@
+// 豆包dola国内国际视频去水印 —— Edge/Chrome 扩展版 (MV3, MAIN world content script)
+// 移植自 userscript dola-watermark-remover.user.js v2.0.6
+// 网络请求统一转发给 background.js（绕过 CORS 并携带 cookie），等价于原 GM_xmlhttpRequest / GM_download
+
+(function () {
+  "use strict";
+
+  const W = window; // MAIN world 下 window 即页面真实 window
+  if (W.__DOLA_WM_HOOK__) return;
+  W.__DOLA_WM_HOOK__ = true;
+
+  const SUBTLE = (W.crypto && W.crypto.subtle) ? W.crypto.subtle : null;
+
+  // ---------- 常量 / 配置 ----------
+  const CUR_VER  = "2.0.6";
+  const AUTHOR   = "gai溜子到处跑";
+  const EMAIL    = "jeffak@126.com";
+  const SITE_URL = "https://www.090803.xyz";
+  const REPO_URL = "https://github.com/jeffak000/doubao-gailiuzi";
+  const RAW_URL  = "https://raw.githubusercontent.com/jeffak000/doubao-gailiuzi/main/dola-watermark-remover.user.js";
+  const COPYRIGHT = "www.090803.xyz";
+  const FPLAY_HOST_SUFFIXES = [".snssdk.com",".douyinvod.com",".dola.com",".byteintlapi.com"];
+  const QAAB_SALT = hexToBytes(
+    "4dd4c2e6b83162090e52b3c7a6733ba4" +
+    "1cb2462b829ab58a196b39db57177524" +
+    "f49baf7f08e8d68d26a72e37c1a95a2f" +
+    "1f05a51892aef2949732b62a38aadd58");
+  const TIME_KEYS = ["create_time","gmt_create","ctime","createTime","video_create_time",
+                     "publish_time","generation_time","produce_time","add_time","update_time"];
+  const COVER_KEYS = ["cover_url","cover","poster","origin_cover","dynamic_cover","video_cover",
+                      "poster_url","cover_uri","first_frame","animated_cover","origin_cover_url"];
+
+  // ---------- 存储 ----------
+  const videos = new Map();
+
+  // ---------- 工具 ----------
+  function hexToBytes(hex){ const a=[]; for(let i=0;i<hex.length;i+=2) a.push(parseInt(hex.substr(i,2),16)); return new Uint8Array(a); }
+  function isHttpUrl(s){ try{ const u=new URL(s); return u.protocol==="http:"||u.protocol==="https:"; }catch(e){ return false; } }
+  function fmtTime(d){
+    if(!d||isNaN(d.getTime())) return "未知";
+    const p=n=>String(n).padStart(2,"0");
+    return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
+  }
+  function parseVer(s){ const m=String(s).match(/(\d+(?:\.\d+)+)/); return m?m[1].split('.').map(Number):[0]; }
+  function compareVer(a,b){
+    const pa=parseVer(a), pb=parseVer(b);
+    for(let i=0;i<Math.max(pa.length,pb.length);i++){ const x=pa[i]||0,y=pb[i]||0; if(x>y)return 1; if(x<y)return -1; }
+    return 0;
+  }
+  function pickTime(node){
+    for(const k of TIME_KEYS){
+      const v=node[k];
+      if(v===undefined||v===null||v==="") continue;
+      let n=(typeof v==="number")?v:parseFloat(String(v).replace(/[^\d.]/g,""));
+      if(!isFinite(n)) continue;
+      if(n>1e11) n=Math.floor(n/1000);
+      if(n<1e9) continue;
+      const d=new Date(n*1000);
+      if(!isNaN(d.getTime())) return d;
+    }
+    return null;
+  }
+  function firstUrl(x){
+    if(typeof x==="string") return isHttpUrl(x)?x:"";
+    if(Array.isArray(x)){ for(const y of x){ const u=firstUrl(y); if(u) return u; } return ""; }
+    if(x&&typeof x==="object"){ for(const k of ["url","uri","url_list","cover_url","main_url","src"]){ const u=firstUrl(x[k]); if(u) return u; } }
+    return "";
+  }
+  function pickCover(node){
+    for(const k of COVER_KEYS){ const u=firstUrl(node[k]); if(u) return u; }
+    return "";
+  }
+
+  // ---------- base64 / 解密（移植自 doubao-nomark video_crypto.py）----------
+  function b64Norm(s){ s=s.replace(/-/g,"+").replace(/_/g,"/"); while(s.length%4)s+="="; return s; }
+  function atobBytes(s){ const b=atob(s); const u=new Uint8Array(b.length); for(let i=0;i<b.length;i++)u[i]=b.charCodeAt(i); return u; }
+  function decodeBase64Loose(value){
+    const text=(value||"").trim();
+    const variants=[ text,
+      text.replace(/\$/g,"_").replace(/@/g,"/").replace(/#/g,"."),
+      text.replace(/\$/g,"+").replace(/@/g,"/").replace(/#/g,"=") ];
+    const seen=new Set();
+    for(let c of variants){ if(!c||seen.has(c))continue; seen.add(c);
+      try{ return atobBytes(b64Norm(c)); }catch(e){} }
+    return null;
+  }
+  function urlFromBytes(bytes){
+    for(let i=0;i<bytes.length;i++){ const b=bytes[i]; if(!(b===9||b===10||b===13||(b>=32&&b<=126))) return ""; }
+    let s=""; for(let i=0;i<bytes.length;i++) s+=String.fromCharCode(bytes[i]);
+    s=s.trim(); return isHttpUrl(s)?s:"";
+  }
+  function stripPkcs7(bytes){
+    if(!bytes.length) return bytes;
+    const p=bytes[bytes.length-1];
+    if(p<1||p>16||p>bytes.length) return bytes;
+    for(let i=0;i<p;i++) if(bytes[bytes.length-1-i]!==p) return bytes;
+    return bytes.slice(0,bytes.length-p);
+  }
+  async function sha512(bytes){
+    if(!SUBTLE) throw new Error("crypto.subtle 不可用（需 https 页面）");
+    return new Uint8Array(await SUBTLE.digest("SHA-512", bytes));
+  }
+  async function aesCbcDecrypt(payload, key, iv){
+    if(!SUBTLE||!payload.length||payload.length%16) return null;
+    try{
+      const k=await SUBTLE.importKey("raw", key, {name:"AES-CBC"}, false, ["decrypt"]);
+      const buf=await SUBTLE.decrypt({name:"AES-CBC", iv}, k, payload);
+      return new Uint8Array(buf);
+    }catch(e){ return null; }
+  }
+  async function decodeQaabToken(token, keySeed){
+    const data=decodeBase64Loose(token), seed=decodeBase64Loose(keySeed);
+    if(!data||!seed) return "";
+    const first=await sha512(seed.slice(0,32));
+    const comb=new Uint8Array(first.length+QAAB_SALT.length);
+    comb.set(first,0); comb.set(QAAB_SALT,first.length);
+    const mat=await sha512(comb);
+    const key=mat.slice(0,16), iv=mat.slice(16,32);
+    const attempts=[];
+    if(data[0]===0xa8&&data[1]===0x00&&data[2]===0x01&&data[3]===0x00){
+      attempts.push([data.slice(4),key,iv]);
+      attempts.push([data.slice(4),iv,key]);
+      if(data.length>36){ attempts.push([data.slice(36),key,data.slice(20,36)]); attempts.push([data.slice(36),key,iv]); }
+    } else { attempts.push([data,key,iv]); }
+    for(const [pl,k,i] of attempts){
+      const dec=await aesCbcDecrypt(pl,k,i);
+      if(!dec) continue;
+      let u=urlFromBytes(dec); if(u) return u;
+      u=urlFromBytes(stripPkcs7(dec)); if(u) return u;
+    }
+    return "";
+  }
+  async function decodeMainUrl(token, keySeed){
+    token=(token||"").trim();
+    if(isHttpUrl(token)) return token;
+    const dec=decodeBase64Loose(token);
+    if(dec){ const plain=urlFromBytes(dec); if(plain) return plain; }
+    if(token.startsWith("qAAB")&&keySeed) return await decodeQaabToken(token,keySeed);
+    return "";
+  }
+
+  // ---------- 抓取 fallback_api（视频源）----------
+  function isFplayUrl(u){
+    if(!u||typeof u!=="string") return false;
+    try{ const p=new URL(u); const h=p.hostname.toLowerCase();
+      const ok=FPLAY_HOST_SUFFIXES.some(s=>h===s.slice(1)||h.endsWith(s));
+      return ok && p.pathname.startsWith("/video/fplay/");
+    }catch(e){ return false; }
+  }
+  function addVideoSource(node){
+    const url=(typeof node==="string")?node:node.fallback_api;
+    if(!url||typeof url!=="string") return;
+    if(!isFplayUrl(url)) return;
+    if(videos.has(url)) return;
+    let time=null, cover="";
+    if(typeof node==="object"&&node){ time=pickTime(node); cover=pickCover(node); }
+    videos.set(url,{url,status:"ready",clean:null,err:"",time,cover,playing:false});
+    schedulePanel();
+  }
+  function buildUnwatermarkedUrl(url){
+    const u=new URL(url);
+    const p=new URLSearchParams(u.search);
+    p.delete("codec_type"); p.delete("logo_type");
+    p.set("codec_type","8"); p.set("logo_type","unwatermarked");
+    u.search=p.toString();
+    return u.toString();
+  }
+  function walkFplay(node, depth){
+    if(!node||depth>30) return;
+    if(typeof node==="string"){ if(isFplayUrl(node)) addVideoSource(node); return; }
+    if(Array.isArray(node)){ for(const c of node) walkFplay(c,depth+1); return; }
+    if(typeof node==="object"){
+      if(typeof node.fallback_api==="string") addVideoSource(node);
+      for(const k in node) if(Object.prototype.hasOwnProperty.call(node,k)) walkFplay(node[k],depth+1);
+    }
+  }
+
+  // ---------- Hook JSON.parse ----------
+  const origParse=W.JSON.parse;
+  W.JSON.parse=function(text,reviver){
+    const r=origParse.call(this,text,reviver);
+    try{ if(typeof text==="string"&&text.length<2e6) walkFplay(r,0); }catch(e){}
+    return r;
+  };
+
+  // ---------- 解析页面 <script data-fn-args>（兜底）----------
+  function scanScriptTags(){
+    const tags=document.querySelectorAll("script[data-script-src]");
+    for(const tag of tags){
+      const src=tag.getAttribute("data-script-src")||"";
+      if(src!=="modern-run-router-data-fn"&&src!=="modern-run-window-fn") continue;
+      const args=tag.getAttribute("data-fn-args"); if(!args) continue;
+      try{ walkFplay(JSON.parse(args),0); }catch(e){}
+    }
+  }
+
+  // ---------- 网络兜底 ----------
+  const origFetch=W.fetch;
+  if(origFetch){ W.fetch=function(...a){ return origFetch.apply(this,a).then(resp=>{
+    try{ const ct=resp.headers&&resp.headers.get&&resp.headers.get("content-type");
+      if(ct&&ct.indexOf("json")!==-1) resp.clone().text().then(t=>{try{walkFplay(JSON.parse(t),0);}catch(e){}}).catch(()=>{}); }catch(e){}
+    return resp; }); }; }
+
+  // ---------- 与 background 通信（替代 GM_xmlhttpRequest / GM_download）----------
+  function bgFetch(url, headers){
+    return new Promise((resolve,reject)=>{
+      try{
+        chrome.runtime.sendMessage({type:"fetch",url,headers:headers||{}},resp=>{
+          if(chrome.runtime.lastError) return reject(new Error(chrome.runtime.lastError.message));
+          if(!resp) return reject(new Error("无响应"));
+          if(!resp.ok) return reject(new Error("HTTP "+resp.status));
+          resolve(resp.text);
+        });
+      }catch(e){ reject(e); }
+    });
+  }
+  async function fetchCleanVideo(fallbackApi){
+    const uw=buildUnwatermarkedUrl(fallbackApi);
+    const payload=JSON.parse(await bgFetch(uw, {
+      "User-Agent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36 Edg/148.0.0.0",
+      "Accept":"application/json"
+    }));
+    const vi=payload.video_info||(payload.data&&payload.data.video_info)||payload;
+    const data=(vi&&vi.data)||vi||{};
+    const vl=data.video_list;
+    let entries=vl?(vl instanceof Array?vl:Object.values(vl)):[data];
+    entries=entries.filter(e=>e&&(e.main_url||e.play_url));
+    if(!entries.length) throw new Error("响应里没有 main_url");
+    entries.sort((a,b)=>((b.vwidth||b.width||0)*(b.vheight||b.height||0))-((a.vwidth||a.width||0)*(a.vheight||a.height||0)));
+    const best=entries[0];
+    const token=best.main_url||best.play_url;
+    const seed=data.key_seed||(vi&&vi.key_seed)||payload.key_seed||"";
+    const url=await decodeMainUrl(token,seed);
+    if(!url) throw new Error("解密失败");
+    return url;
+  }
+
+  // ---------- 下载 ----------
+  function fname(){
+    const ts=new Date().toISOString().replace(/[:.]/g,"-").slice(0,19);
+    const id=(location.pathname.match(/[a-f0-9]{8,}/)||["chat"])[0];
+    return `dola_${id}_${ts}.mp4`;
+  }
+  function fallbackBlob(url,name){
+    // 最后兜底：若 background 下载失败（如某些签名/referer 限制），尝试 fetch+blob
+    fetch(url,{credentials:"include",redirect:"follow"}).then(r=>r.blob()).then(b=>{
+      const o=URL.createObjectURL(b),a=document.createElement("a");
+      a.href=o; a.download=name; document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(()=>URL.revokeObjectURL(o),8000);
+    }).catch(()=>alert("下载失败（可能被跨域拦截）：\n"+url+"\n\n可复制直链手动下载。"));
+  }
+  function download(url){
+    const name=fname();
+    try{
+      chrome.runtime.sendMessage({type:"download",url,name},resp=>{
+        if(chrome.runtime.lastError) return fallbackBlob(url,name);
+        if(!resp||!resp.ok) return fallbackBlob(url,name);
+      });
+    }catch(e){ fallbackBlob(url,name); }
+  }
+
+  // ---------- 更新检查（GitHub）----------
+  function checkUpdate(){
+    bgFetch(RAW_URL).then(text=>{
+      const m=(text||"").match(/@version\s+([\d.]+)/);
+      if(!m){ alert("无法解析最新版本号"); return; }
+      const latest=m[1];
+      if(compareVer(latest,CUR_VER)>0){
+        if(confirm(`发现新版本 v${latest}（当前 v${CUR_VER}）。\n是否打开 GitHub 上的脚本文件更新？`)) W.open(RAW_URL,"_blank");
+      } else { alert(`当前已是最新版本（v${CUR_VER}）`); }
+    }).catch(e=>alert("检查更新失败："+e.message));
+  }
+
+  // ---------- 面板 ----------
+  let panel,bodyBuilt=false,timer=null;
+  const COVER_PH='<div style="width:96px;height:54px;border-radius:4px;background:#111;border:1px solid #333;display:flex;align-items:center;justify-content:center;color:#555;font-size:18px;flex:0 0 auto;">🎬</div>';
+  function buildPanel(){
+    panel=document.createElement("div"); panel.id="dola-wm-panel";
+    Object.assign(panel.style,{position:"fixed",right:"12px",bottom:"12px",zIndex:2147483647,
+      width:"360px",maxHeight:"72vh",overflow:"auto",background:"#1e1e1e",color:"#eee",
+      border:"1px solid #444",borderRadius:"10px",font:"13px/1.4 system-ui,sans-serif",boxShadow:"0 8px 24px rgba(0,0,0,.4)"});
+    panel.innerHTML=
+      '<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 10px;background:#2a2a2a;border-radius:10px 10px 0 0;cursor:move;">'+
+      '<b>📥 Dola 视频去水印</b><span id="dola-wm-close" style="cursor:pointer;padding:0 4px;">✕</span></div>'+
+      '<div style="padding:6px 10px;display:flex;gap:6px;">'+
+      '<button id="dola-wm-dlall" style="flex:1;padding:5px;background:#43a047;color:#fff;border:none;border-radius:6px;cursor:pointer;">全下载视频</button>'+
+      '<button id="dola-wm-update" style="padding:5px 8px;background:#1565c0;color:#fff;border:none;border-radius:6px;cursor:pointer;">检查更新</button>'+
+      '<button id="dola-wm-clear" style="padding:5px 8px;background:#555;color:#fff;border:none;border-radius:6px;cursor:pointer;">清空</button></div>'+
+      '<div id="dola-wm-body" style="padding:6px 10px 10px;"></div>'+
+      `<div style="padding:6px 10px;border-top:1px solid #333;font-size:10px;color:#777;text-align:center;line-height:1.7;">© <a href="${SITE_URL}" target="_blank" rel="noopener" style="color:#64b5f6;text-decoration:none;">${COPYRIGHT}</a> · 作者 ${AUTHOR} <a href="mailto:${EMAIL}" style="color:#64b5f6;text-decoration:none;">${EMAIL}</a> · v${CUR_VER} · Chrome/Edge 扩展版 · 更新见 <a href="${REPO_URL}" target="_blank" rel="noopener" style="color:#64b5f6;">GitHub</a></div>`;
+    document.body.appendChild(panel);
+    panel.querySelector("#dola-wm-close").onclick=()=>panel.remove();
+    panel.querySelector("#dola-wm-clear").onclick=()=>{ videos.clear(); renderPanel(); };
+    panel.querySelector("#dola-wm-dlall").onclick=()=>{ for(const v of videos.values()) downloadVideo(v); };
+    panel.querySelector("#dola-wm-update").onclick=checkUpdate;
+    dragPanel(panel); bodyBuilt=true;
+  }
+  function dragPanel(el){ const bar=el.firstElementChild; let dx,dy,sx,sy,drag=false;
+    bar.onmousedown=e=>{drag=true;sx=e.clientX;sy=e.clientY;const r=el.getBoundingClientRect();dx=r.left;dy=r.top;e.preventDefault();};
+    document.onmousemove=e=>{if(!drag)return;el.style.left=dx+(e.clientX-sx)+"px";el.style.top=dy+(e.clientY-sy)+"px";el.style.right="auto";el.style.bottom="auto";};
+    document.onmouseup=()=>drag=false; }
+  function esc(s){ return String(s).replace(/"/g,"&quot;"); }
+  function renderPanel(){
+    if(!bodyBuilt) return;
+    const b=panel.querySelector("#dola-wm-body");
+    const vids=[...videos.values()];
+    if(!vids.length){ b.innerHTML='<div style="color:#888;">打开含视频的会话后自动捕获。视频会拿 logo_type=unwatermarked 解密下载。</div>'; return; }
+    let html=`<div style="color:#aaa;margin-bottom:4px;">视频源 ${vids.length}</div>`;
+    for(const v of vids){
+      const st=v.status==="loading"?"⏳ 解密处理中…":v.status==="done"?"✅ 已得无水印直链":v.status==="err"?("❌ "+v.err):"待下载";
+      const thumb=v.cover?`<img src="${esc(v.cover)}" loading="lazy" style="width:96px;height:54px;object-fit:cover;border-radius:4px;background:#000;border:1px solid #333;flex:0 0 auto;" onerror="this.replaceWith(document.createTextNode('🎬'))">`:COVER_PH;
+      const key=encodeURIComponent(v.url);
+      let player="";
+      if(v.playing&&v.clean){
+        player=`<video src="${esc(v.clean)}" controls autoplay playsinline style="width:100%;margin-top:6px;border-radius:6px;background:#000;"></video>`;
+      }
+      html+=`<div style="margin:6px 0;padding:6px;border:1px solid #333;border-radius:6px;">`+
+        `<div style="display:flex;gap:8px;">`+thumb+
+        `<div style="flex:1;min-width:0;">`+
+        `<div style="font-size:11px;color:#81c784;">🎬 Dola 视频（去水印）</div>`+
+        `<div style="font-size:10px;color:#bbb;">🕒 生成时间：${fmtTime(v.time)}</div>`+
+        `<div style="font-size:10px;color:#888;">${st}</div></div></div>`+
+        `<div style="margin-top:6px;display:flex;gap:6px;">`+
+        `<button data-vid="${key}" style="padding:3px 8px;background:#e53935;color:#fff;border:none;border-radius:5px;cursor:pointer;">下载无水印</button>`+
+        `<button data-prev="${key}" style="padding:3px 8px;background:#455a64;color:#fff;border:none;border-radius:5px;cursor:pointer;">${v.playing?"收起预览":"预览"}</button></div>`+
+        player+`</div>`;
+    }
+    b.innerHTML=html;
+    b.querySelectorAll("[data-vid]").forEach(btn=>btn.onclick=()=>downloadVideo(videos.get(decodeURIComponent(btn.dataset.vid))));
+    b.querySelectorAll("[data-prev]").forEach(btn=>btn.onclick=()=>previewVideo(videos.get(decodeURIComponent(btn.dataset.prev))));
+  }
+  async function ensureClean(v){
+    if(v.clean) return v.clean;
+    v.status="loading"; renderPanel();
+    try{ v.clean=await fetchCleanVideo(v.url); v.status="done"; return v.clean; }
+    catch(e){ v.status="err"; v.err=e.message; throw e; }
+  }
+  async function downloadVideo(v){
+    if(!v||v.status==="loading") return;
+    try{ const clean=await ensureClean(v); renderPanel(); download(clean); }
+    catch(e){ renderPanel(); alert("去水印失败："+e.message+"\n\n可改用 doubao-nomark 扩展，或把报错发我。"); }
+  }
+  async function previewVideo(v){
+    if(!v) return;
+    if(v.playing){ v.playing=false; renderPanel(); return; }
+    try{ await ensureClean(v); v.playing=true; renderPanel(); }
+    catch(e){ renderPanel(); alert("预览失败（解密）："+e.message); }
+  }
+  function schedulePanel(){ if(timer)return; timer=setTimeout(()=>{ timer=null; if(!bodyBuilt)buildPanel(); renderPanel(); },400); }
+
+  // ---------- 页面视频上的下载按钮 ----------
+  function sourceForVideo(el){
+    const cands=[el.currentSrc, el.src, el.getAttribute("src"), el.getAttribute("data-src")].filter(Boolean);
+    for(const c of cands){ if(isFplayUrl(c)) return c; }
+    const poster=el.poster||el.getAttribute("poster")||"";
+    if(poster){ for(const v of videos.values()){ if(v.cover&&v.cover===poster) return v.url; } }
+    if(videos.size>=1) return [...videos.keys()][0];
+    return "";
+  }
+  function onVideoClick(el){
+    let url=sourceForVideo(el);
+    if(!url){
+      const cands=[el.currentSrc, el.src, el.getAttribute("src")].filter(Boolean);
+      const f=cands.find(isFplayUrl);
+      if(f){ addVideoSource(f); url=f; }
+    }
+    if(!url){ alert("暂未捕获到该视频的源，请等页面加载完再试，或打开右下角面板下载。"); return; }
+    if(!videos.has(url)) addVideoSource(url);
+    downloadVideo(videos.get(url));
+  }
+  function injectVideoButtons(){
+    const vids=document.querySelectorAll("video");
+    for(const el of vids){
+      try{ const s=el.currentSrc||el.src||el.getAttribute("src")||""; if(isFplayUrl(s)) addVideoSource(s); }catch(e){}
+      const parent=el.parentElement; if(!parent) continue;
+      let id=el.getAttribute("data-dola-btnid");
+      if(!id){ id="dola-b-"+Math.random().toString(36).slice(2); el.setAttribute("data-dola-btnid",id); }
+      if(document.querySelector('[data-dola-btn="'+id+'"]')) continue;
+      try{ if(getComputedStyle(parent).position==="static") parent.style.position="relative"; }catch(e){}
+      const btn=document.createElement("button");
+      btn.setAttribute("data-dola-btn",id); btn.textContent="⬇ 无水印";
+      Object.assign(btn.style,{position:"absolute",top:"8px",right:"8px",zIndex:99999,
+        background:"rgba(229,57,53,.95)",color:"#fff",border:"none",borderRadius:"6px",
+        padding:"4px 8px",font:"12px system-ui,sans-serif",cursor:"pointer",pointerEvents:"auto",boxShadow:"0 2px 6px rgba(0,0,0,.4)"});
+      btn.onclick=e=>{ e.preventDefault(); e.stopPropagation(); onVideoClick(el); };
+      parent.appendChild(btn);
+    }
+  }
+
+  // ---------- 启动 ----------
+  function start(){
+    const init=()=>{ buildPanel(); scanScriptTags(); injectVideoButtons();
+      new MutationObserver(()=>scanScriptTags()).observe(document.documentElement,{childList:true,subtree:true});
+      setInterval(scanScriptTags,2500);
+      setInterval(injectVideoButtons,1500); };
+    if(document.body) init(); else document.addEventListener("DOMContentLoaded",init);
+  }
+  start();
+})();
