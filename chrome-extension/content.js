@@ -1,4 +1,4 @@
-// 豆包dola国内国际视频去水印 —— Edge/Chrome 扩展版 (MV3, MAIN world content script)
+// 豆包dola国内国际视频去水印（插件版）—— Chrome/Edge 扩展 (MV3, MAIN world content script)
 // 移植自 userscript dola-watermark-remover.user.js v2.0.6
 // 网络请求统一转发给 background.js（绕过 CORS 并携带 cookie），等价于原 GM_xmlhttpRequest / GM_download
 
@@ -287,7 +287,7 @@
       '<button id="dola-wm-update" style="padding:5px 8px;background:#1565c0;color:#fff;border:none;border-radius:6px;cursor:pointer;">检查更新</button>'+
       '<button id="dola-wm-clear" style="padding:5px 8px;background:#555;color:#fff;border:none;border-radius:6px;cursor:pointer;">清空</button></div>'+
       '<div id="dola-wm-body" style="padding:6px 10px 10px;"></div>'+
-      `<div style="padding:6px 10px;border-top:1px solid #333;font-size:10px;color:#777;text-align:center;line-height:1.7;">© <a href="${SITE_URL}" target="_blank" rel="noopener" style="color:#64b5f6;text-decoration:none;">${COPYRIGHT}</a> · 作者 ${AUTHOR} <a href="mailto:${EMAIL}" style="color:#64b5f6;text-decoration:none;">${EMAIL}</a> · v${CUR_VER} · Chrome/Edge 扩展版 · 更新见 <a href="${REPO_URL}" target="_blank" rel="noopener" style="color:#64b5f6;">GitHub</a></div>`;
+      `<div style="padding:6px 10px;border-top:1px solid #333;font-size:10px;color:#777;text-align:center;line-height:1.7;">© <a href="${SITE_URL}" target="_blank" rel="noopener" style="color:#64b5f6;text-decoration:none;">${COPYRIGHT}</a> · 作者 ${AUTHOR} <a href="mailto:${EMAIL}" style="color:#64b5f6;text-decoration:none;">${EMAIL}</a> · v${CUR_VER} · 插件版 · 更新见 <a href="${REPO_URL}" target="_blank" rel="noopener" style="color:#64b5f6;">GitHub</a></div>`;
     document.body.appendChild(panel);
     panel.querySelector("#dola-wm-close").onclick=()=>panel.remove();
     panel.querySelector("#dola-wm-clear").onclick=()=>{ videos.clear(); renderPanel(); };
