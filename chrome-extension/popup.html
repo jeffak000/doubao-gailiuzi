@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <style>
+    body{ width:300px; margin:0; padding:14px 16px; font:13px/1.5 system-ui,sans-serif; color:#222; }
+    h1{ font-size:15px; margin:0 0 4px; }
+    .ver{ color:#666; font-size:12px; margin-bottom:10px; }
+    button{ width:100%; padding:8px; background:#1565c0; color:#fff; border:none; border-radius:6px; cursor:pointer; font-size:13px; }
+    button:hover{ background:#0d47a1; }
+    a{ color:#1565c0; text-decoration:none; }
+    .row{ margin-top:10px; }
+    #result{ margin-top:10px; font-size:12px; color:#333; white-space:pre-wrap; }
+    hr{ border:none; border-top:1px solid #eee; margin:10px 0; }
+  </style>
+</head>
+<body>
+  <h1>📥 Dola 视频去水印</h1>
+  <div class="ver">Chrome/Edge 扩展版 · v2.0.6</div>
+  <button id="check">检查更新</button>
+  <div class="row">
+    <a href="https://github.com/jeffak000/doubao-gailiuzi" target="_blank" rel="noopener">GitHub 仓库</a>
+    · <a href="https://www.090803.xyz" target="_blank" rel="noopener">作者站点</a>
+  </div>
+  <hr>
+  <div style="font-size:11px;color:#888;">在 dola.com / doubao.com 打开含视频的会话，右下角会出现下载面板，视频上也直接有「⬇ 无水印」按钮。</div>
+  <div id="result"></div>
+  <script src="popup.js"></script>
+</body>
+</html>
