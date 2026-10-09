@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "豆包dola国内国际视频去水印",
+  "name": "豆包dola国内国际视频去水印（插件版）",
   "version": "2.0.6",
-  "description": "在 dola.com / doubao.com 抓取无水印原视频（logo_type=unwatermarked + main_url 解密）。面板带缩略图预览，页面视频上直接叠加下载按钮。仅视频。Chrome/Edge 扩展版。",
+  "description": "在 dola.com / doubao.com 抓取无水印原视频（logo_type=unwatermarked + main_url 解密）。面板带缩略图预览，页面视频上直接叠加下载按钮。仅视频。（插件版）。",
   "author": "gai溜子到处跑 (jeffak@126.com)",
   "homepage_url": "https://github.com/jeffak000/doubao-gailiuzi",
   "permissions": [
@@ -40,6 +40,6 @@
   },
   "action": {
     "default_popup": "popup.html",
-    "default_title": "Dola 视频去水印 (Chrome/Edge 扩展版)"
+    "default_title": "Dola 视频去水印 (插件版)"
   }
 }
